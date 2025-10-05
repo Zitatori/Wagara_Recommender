@@ -1,0 +1,110 @@
+[
+  {
+    "name": "Ume(Plum Tree)",
+    "motifs": [
+      "Dynamic",
+      "Seasonal"
+    ],
+    "seasons": [
+      "Spring",
+      "Winter"
+    ],
+    "formality": [
+      "Formal"
+    ],
+    "mood": [
+      "Elegant",
+      "Serene",
+      "Graceful",
+      "Feminine"
+    ],
+    "genders": [
+      "Female"
+    ],
+    "contrast_pref": [
+      "Medium"
+    ],
+    "color_palettes": [
+      [
+        "#983018",
+        "#972F18",
+        "#993119"
+      ]
+    ],
+    "notes": ""
+  },
+  {
+    "name": "Sakura(Cherry Brossom)",
+    "motifs": [
+      "Nature",
+      "Seasonal"
+    ],
+    "seasons": [
+      "Spring"
+    ],
+    "formality": [
+      "Casual",
+      "Semi-formal",
+      "Formal"
+    ],
+    "mood": [
+      "Bright",
+      "Serene",
+      "Soft",
+      "Feminine"
+    ],
+    "genders": [
+      "Female"
+    ],
+    "contrast_pref": [
+      "Medium"
+    ],
+    "color_palettes": [
+      [
+        "#962716",
+        "#952716",
+        "#942616"
+      ]
+    ],
+    "notes": ""
+  },
+  {
+    "name": "Tsuru(CrayBird)",
+    "motifs": [
+      "Nature",
+      "Classic",
+      "Dynamic",
+      "Lucky symbol"
+    ],
+    "seasons": [
+      "All year"
+    ],
+    "formality": [
+      "Formal"
+    ],
+    "mood": [
+      "Soft",
+      "Dynamic",
+      "Sharp",
+      "Elegant",
+      "Calm"
+    ],
+    "genders": [
+      "Female",
+      "Unisex",
+      "Male"
+    ],
+    "contrast_pref": [
+      "Medium",
+      "High"
+    ],
+    "color_palettes": [
+      [
+        "#854D17",
+        "#844C17",
+        "#834B16"
+      ]
+    ],
+    "notes": ""
+  }
+]
