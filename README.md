@@ -2,7 +2,7 @@
 
 Find kimono (wagara) patterns that match your mood, season, and style — and preview them with your own images.
 
-![App screenshot](Wagara.png)
+![App screenshot](Wagara1.png)
 
 > Put a screenshot at `assets/screenshots/app_home.png`.  
 > You can change the path above if you prefer a different location/name.
