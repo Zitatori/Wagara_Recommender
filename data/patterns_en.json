@@ -106,5 +106,232 @@
       ]
     ],
     "notes": ""
+  },
+  {
+    "name": "Asanoha",
+    "motifs": [
+      "Dynamic",
+      "Geometric"
+    ],
+    "seasons": [
+      "All year"
+    ],
+    "formality": [
+      "Casual"
+    ],
+    "mood": [
+      "Calm",
+      "Graceful",
+      "Bold"
+    ],
+    "genders": [
+      "Female"
+    ],
+    "contrast_pref": [
+      "Low"
+    ],
+    "color_palettes": [
+      [
+        "#F2BDBE",
+        "#F2BCBE",
+        "#F2BCBD"
+      ]
+    ],
+    "notes": ""
+  },
+  {
+    "name": "Kikyou",
+    "motifs": [
+      "Nature",
+      "Classic"
+    ],
+    "seasons": [
+      "Summer",
+      "Autumn"
+    ],
+    "formality": [
+      "Semi-formal"
+    ],
+    "mood": [
+      "Calm",
+      "Elegant"
+    ],
+    "genders": [
+      "Unisex",
+      "Male",
+      "Female"
+    ],
+    "contrast_pref": [
+      "Low"
+    ],
+    "color_palettes": [
+      [
+        "#AE7E2D",
+        "#AE7F2E",
+        "#AF802F"
+      ]
+    ],
+    "notes": ""
+  },
+  {
+    "name": "Nami(wave)",
+    "motifs": [
+      "Classic",
+      "Nature"
+    ],
+    "seasons": [
+      "All year"
+    ],
+    "formality": [
+      "Casual",
+      "Semi-formal"
+    ],
+    "mood": [
+      "Bright",
+      "Calm",
+      "Soft",
+      "Refreshing"
+    ],
+    "genders": [
+      "Unisex"
+    ],
+    "contrast_pref": [
+      "Medium"
+    ],
+    "color_palettes": [
+      [
+        "#21597B",
+        "#719CA9",
+        "#225A7C"
+      ]
+    ],
+    "notes": ""
+  },
+  {
+    "name": "Noshi",
+    "motifs": [
+      "Dynamic"
+    ],
+    "seasons": [
+      "Spring",
+      "Summer"
+    ],
+    "formality": [
+      "Formal"
+    ],
+    "mood": [
+      "Playful",
+      "Graceful",
+      "Refreshing",
+      "Feminine"
+    ],
+    "genders": [
+      "Female"
+    ],
+    "contrast_pref": [
+      "High"
+    ],
+    "color_palettes": [
+      [
+        "#D3B782",
+        "#D4B883",
+        "#D4B884"
+      ]
+    ],
+    "notes": ""
+  },
+  {
+    "name": "Ryuu",
+    "motifs": [
+      "Dynamic"
+    ],
+    "seasons": [
+      "All year"
+    ],
+    "formality": [
+      "Formal",
+      "Casual"
+    ],
+    "mood": [
+      "Dynamic"
+    ],
+    "genders": [
+      "Male"
+    ],
+    "contrast_pref": [
+      "High"
+    ],
+    "color_palettes": [
+      [
+        "#12282E",
+        "#12272D",
+        "#13282E"
+      ]
+    ],
+    "notes": ""
+  },
+  {
+    "name": "Tora",
+    "motifs": [
+      "Dynamic"
+    ],
+    "seasons": [
+      "All year"
+    ],
+    "formality": [
+      "Formal",
+      "Casual"
+    ],
+    "mood": [
+      "Dynamic"
+    ],
+    "genders": [
+      "Male"
+    ],
+    "contrast_pref": [
+      "High"
+    ],
+    "color_palettes": [
+      [
+        "#0F2B30",
+        "#0F2A2F",
+        "#0F2A30"
+      ]
+    ],
+    "notes": ""
+  },
+  {
+    "name": "Ichimatsu",
+    "motifs": [
+      "Dynamic",
+      "Geometric"
+    ],
+    "seasons": [
+      "All year"
+    ],
+    "formality": [
+      "Casual"
+    ],
+    "mood": [
+      "Calm",
+      "Graceful",
+      "Bold"
+    ],
+    "genders": [
+      "Male",
+      "Female",
+      "Unisex"
+    ],
+    "contrast_pref": [
+      "Low"
+    ],
+    "color_palettes": [
+      [
+        "#0C0E09",
+        "#1A281A",
+        "#1B291A"
+      ]
+    ],
+    "notes": ""
   }
 ]
