@@ -1,110 +1,131 @@
 # -*- coding: utf-8 -*-
 """
-Wagara Recommender (Streamlit single-file)
-- English UI
-- External JSON (data/patterns_en.json)
-- Simple Add: image -> pattern (+optional tags), auto color palette
-- Cards prioritize IMAGES (up to 3)
-- Color chips toggle (default: OFF)
-- Strong Gallery: forcibly discovers & displays images
-- Pattern Manager + bulk import, image link manager
-- Reset tools & delete-all
-- Hero background prefers assets/backgrounds/hero_placeholder.png (MIME fixed)
-- Debug panel
-
-Run:  streamlit run streamlit_app.py
+Wagara Recommender – single file, robust version.
+- 背景画像: assets/backgrounds/ 配下の画像を自動検出（任意名OK、hero* 優先）
+- Top3カード: 必ず画像を表示（links → ファイル名あいまい一致 → ギャラリーfallback）
+- ギャラリー: フォルダ全走査、Pillowで読み込んで表示
+- Edit mode: 画像アップ→パターン登録（複数タグ可）、リンク管理、パターン管理、シード投入
 """
+
 from __future__ import annotations
-import base64, json, os, glob
+import os, json, base64, glob, re
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
 import streamlit as st
 from PIL import Image
 
-# ==============================================
-# PAGE CONFIG
-# ==============================================
-st.set_page_config(
-    page_title="Wagara Recommender",
-    page_icon="🎴",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
+# ==============================
+# 基本パス（フォルダのみ作成）
+# ==============================
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-ASSETS_BG = os.path.join(APP_DIR, "assets", "backgrounds")
-ASSETS_PATTERNS = os.path.join(APP_DIR, "assets", "patterns")
+ASSETS_DIR = os.path.join(APP_DIR, "assets")
+ASSETS_BG = os.path.join(ASSETS_DIR, "backgrounds")     # フォルダ
+ASSETS_PATTERNS = os.path.join(ASSETS_DIR, "patterns")  # フォルダ
 DATA_DIR = os.path.join(APP_DIR, "data")
 IMAGE_INDEX_JSON = os.path.join(DATA_DIR, "images.json")
 PATTERN_JSON_PATH = os.path.join(DATA_DIR, "patterns_en.json")
 
-os.makedirs(ASSETS_BG, exist_ok=True)
-os.makedirs(ASSETS_PATTERNS, exist_ok=True)
-os.makedirs(DATA_DIR, exist_ok=True)
-
-# Ensure files exist
+for d in (ASSETS_DIR, ASSETS_BG, ASSETS_PATTERNS, DATA_DIR):
+    os.makedirs(d, exist_ok=True)
 if not os.path.exists(PATTERN_JSON_PATH):
-    with open(PATTERN_JSON_PATH, "w", encoding="utf-8") as f:
-        f.write("[]")
+    with open(PATTERN_JSON_PATH, "w", encoding="utf-8") as f: f.write("[]")
 if not os.path.exists(IMAGE_INDEX_JSON):
-    with open(IMAGE_INDEX_JSON, "w", encoding="utf-8") as f:
-        f.write("{}")
+    with open(IMAGE_INDEX_JSON, "w", encoding="utf-8") as f: f.write("{}")
 
-# ==============================================
-# CSS / STYLE
-# ==============================================
-def _encode_image_b64(path: str) -> str | None:
-    if not os.path.exists(path):
-        return None
+# ==============================
+# ページ設定
+# ==============================
+st.set_page_config(page_title="Wagara Recommender", page_icon="🎴", layout="wide", initial_sidebar_state="expanded")
+
+# ==============================
+# ユーティリティ
+# ==============================
+def b64_of(path: str) -> str | None:
     try:
         with open(path, "rb") as f:
             return base64.b64encode(f.read()).decode("utf-8")
     except Exception:
         return None
 
+def read_bytes(path: str) -> bytes | None:
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except Exception:
+        return None
+
+def all_images_in(folder: str) -> List[str]:
+    if not os.path.isdir(folder): return []
+    exts = ("png","jpg","jpeg","webp","PNG","JPG","JPEG","WEBP")
+    files: List[str] = []
+    for e in exts:
+        files.extend(glob.glob(os.path.join(folder, f"*.{e}")))
+    files = [p for p in files if os.path.isfile(p)]
+    files.sort(key=lambda p: (os.path.getmtime(p), os.path.basename(p)), reverse=True)
+    return files
+
+def find_hero_image(folder: str) -> tuple[str | None, str | None]:
+    """assets/backgrounds/ 内の画像を拾う。hero* を優先。"""
+    files = all_images_in(folder)
+    if not files: return None, None
+    heroish = [p for p in files if os.path.basename(p).lower().startswith("hero")]
+    pick = (heroish or files)[0]
+    ext = os.path.splitext(pick)[1].lower()
+    mime = "image/png" if ext == ".png" else ("image/webp" if ext == ".webp" else "image/jpeg")
+    return pick, mime
+
+def norm(s: str) -> str:
+    return re.sub(r"[^\w]+", "", s.lower())
+
+# ==============================
+# CSS / ヒーロー
+# ==============================
 FONTS_CSS = """
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;600;700&family=Zen+Maru+Gothic:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 :root{--card-radius:1.25rem;}
-html, body, [class^="css"]{font-family:"Zen Maru Gothic", "Noto Serif JP", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;}
+html,body,[class^="css"]{font-family:"Zen Maru Gothic","Noto Serif JP",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;}
 section.main > div {padding-top:0 !important}
-/* hero */
-.hero{position:relative; width:100%; min-height:46vh; display:flex; align-items:center; justify-content:center; overflow:hidden;}
-.hero::before{content:""; position:absolute; inset:0; background:var(--hero-bg, linear-gradient(120deg,#0f172a 0%,#111827 100%)); background-size:cover; background-position:center; filter:contrast(0.95) saturate(0.9);}
-.hero::after{content:""; position:absolute; inset:0; background:radial-gradient(ellipse at 20% 10%, rgba(255,255,255,.12), transparent 40%), radial-gradient(ellipse at 80% 90%, rgba(255,255,255,.08), transparent 40%);}
-.hero-inner{position:relative; padding:2rem 2.4rem; text-align:center; backdrop-filter: blur(6px); background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,.18); border-radius:1.5rem;}
-.hero-title{font-size:clamp(2rem,4vw,3.2rem); font-weight:800; color:#fff; letter-spacing:0.04em;}
-.hero-sub{margin-top:.5rem; color:#e5e7eb; font-size:clamp(.95rem,1.6vw,1.1rem)}
-/* cards */
-.rec-card{background:#fff; border-radius:var(--card-radius); padding:1rem 1.1rem; box-shadow:0 10px 24px rgba(0,0,0,.06); border:1px solid #eef2f7}
-.rec-title{font-size:1.25rem; font-weight:800; margin-bottom:.35rem}
-.rec-badge{display:inline-block; border:1px solid #e5e7eb; padding:.15rem .5rem; border-radius:999px; margin-right:.3rem; font-size:.8rem; color:#334155; background:#f8fafc}
-.colors{display:flex; gap:.5rem; flex-wrap:wrap;}
-.color-chip{display:flex; align-items:center; gap:.5rem; border-radius:.75rem; border:1px solid #e5e7eb; padding:.5rem .7rem;}
-.color-swatch{width:20px; height:20px; border-radius:6px; border:1px solid rgba(0,0,0,.1)}
-.small-muted{color:#64748b; font-size:.85rem}
-/* sidebar */
-[data-testid="stSidebar"] {border-right:1px solid #e5e7eb}
+.hero{position:relative;width:100%;min-height:46vh;display:flex;align-items:center;justify-content:center;overflow:hidden;
+      background-size:cover;background-position:center center;}
+.hero::after{content:"";position:absolute;inset:0;
+  background:radial-gradient(ellipse at 20% 10%, rgba(255,255,255,.12), transparent 40%),
+             radial-gradient(ellipse at 80% 90%, rgba(255,255,255,.08), transparent 40%);}
+.hero-inner{position:relative;padding:2rem 2.4rem;text-align:center;backdrop-filter: blur(6px);
+  background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,.18);border-radius:1.5rem;}
+.hero-title{font-size:clamp(2rem,4vw,3.2rem);font-weight:800;color:#fff;letter-spacing:0.04em;}
+.hero-sub{margin-top:.5rem;color:#e5e7eb;font-size:clamp(.95rem,1.6vw,1.1rem)}
+.rec-card{background:#fff;border-radius:var(--card-radius);padding:1rem 1.1rem;box-shadow:0 10px 24px rgba(0,0,0,.06);border:1px solid #eef2f7}
+.rec-title{font-size:1.25rem;font-weight:800;margin-bottom:.35rem}
+.rec-badge{display:inline-block;border:1px solid #e5e7eb;padding:.15rem .5rem;border-radius:999px;margin-right:.3rem;font-size:.8rem;color:#334155;background:#f8fafc}
+.colors{display:flex;gap:.5rem;flex-wrap:wrap;}
+.color-chip{display:flex;align-items:center;gap:.5rem;border-radius:.75rem;border:1px solid #e5e7eb;padding:.5rem .7rem;}
+.color-swatch{width:20px;height:20px;border-radius:6px;border:1px solid rgba(0,0,0,.1)}
+.small-muted{color:#64748b;font-size:.85rem}
+[data-testid="stSidebar"]{border-right:1px solid #e5e7eb}
 </style>
 """
 
-# Hero background (prefer hero_placeholder.png) — MIME fixed
-hero_img_b64 = None
-hero_mime = None
-for cand in ("hero_placeholder.png", "hero.jpg", "hero.png", "hero.jpeg"):
-    p = os.path.join(ASSETS_BG, cand)
-    if os.path.exists(p):
-        hero_img_b64 = _encode_image_b64(p)
-        ext = os.path.splitext(cand)[1].lower()
-        hero_mime = "image/png" if ext == ".png" else "image/jpeg"
-        break
-hero_style = f"<style>.hero{{--hero-bg:url('data:{hero_mime};base64,{hero_img_b64}')}}</style>" if hero_img_b64 else ""
-st.markdown(FONTS_CSS + hero_style, unsafe_allow_html=True)
+st.markdown(FONTS_CSS, unsafe_allow_html=True)
 
-# ==============================================
-# DATA MODEL
-# ==============================================
+hero_path, hero_mime = find_hero_image(ASSETS_BG)
+hero_b64 = b64_of(hero_path) if hero_path else None
+bg_style = f"background-image:url('data:{hero_mime};base64,{hero_b64}')" if hero_b64 else \
+           "background-image:linear-gradient(120deg,#0f172a 0%,#111827 100%)"
+
+st.markdown(
+    f'<div class="hero" style="{bg_style}"><div class="hero-inner">'
+    '<div class="hero-title">🎴 Wagara Recommender</div>'
+    '<div class="hero-sub">Find kimono patterns and color palettes that match your mood, season, and style.</div>'
+    '</div></div>',
+    unsafe_allow_html=True
+)
+st.markdown("\n")
+
+# ==============================
+# データモデル
+# ==============================
 @dataclass
 class Pattern:
     name: str
@@ -118,184 +139,83 @@ class Pattern:
     notes: str = ""
 
 @st.cache_data(show_spinner=False)
-def load_patterns_from_json(path: str) -> List[Pattern]:
+def load_patterns(path: str) -> List[Pattern]:
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        patterns: List[Pattern] = []
-        for i, obj in enumerate(data):
-            try:
-                patterns.append(Pattern(
-                    name=obj["name"],
-                    motifs=list(obj.get("motifs", [])),
-                    seasons=list(obj.get("seasons", [])),
-                    formality=list(obj.get("formality", [])),
-                    mood=list(obj.get("mood", [])),
-                    genders=list(obj.get("genders", [])),
-                    contrast_pref=list(obj.get("contrast_pref", [])),
-                    color_palettes=[list(p) for p in obj.get("color_palettes", [])],
-                    notes=obj.get("notes", ""),
-                ))
-            except Exception as e:
-                st.error(f"Invalid pattern at index {i}: {e}")
-        return patterns
-    except FileNotFoundError:
-        st.warning(f"Pattern JSON not found: {path}. Using empty list.")
-        return []
-    except Exception as e:
-        st.error(f"Failed to load patterns: {e}")
-        return []
+        data = json.load(open(path, "r", encoding="utf-8"))
+    except Exception:
+        data = []
+    out: List[Pattern] = []
+    for o in data:
+        out.append(Pattern(
+            name=o.get("name",""),
+            motifs=list(o.get("motifs",[])),
+            seasons=list(o.get("seasons",[])),
+            formality=list(o.get("formality",[])),
+            mood=list(o.get("mood",[])),
+            genders=list(o.get("genders",[])),
+            contrast_pref=list(o.get("contrast_pref",[])),
+            color_palettes=[list(p) for p in o.get("color_palettes",[])],
+            notes=o.get("notes",""),
+        ))
+    return out
 
-def save_patterns_to_json(path: str, patterns: List[Pattern]) -> bool:
+def save_patterns(path: str, items: List[Pattern]) -> bool:
     try:
-        payload = []
-        for p in patterns:
-            payload.append({
-                "name": p.name,
-                "motifs": list(p.motifs),
-                "seasons": list(p.seasons),
-                "formality": list(p.formality),
-                "mood": list(p.mood),
-                "genders": list(p.genders),
-                "contrast_pref": list(p.contrast_pref),
-                "color_palettes": [list(c) for c in p.color_palettes],
-                "notes": p.notes,
-            })
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-        load_patterns_from_json.clear()
+        payload=[{
+            "name":p.name,"motifs":p.motifs,"seasons":p.seasons,"formality":p.formality,
+            "mood":p.mood,"genders":p.genders,"contrast_pref":p.contrast_pref,
+            "color_palettes":p.color_palettes,"notes":p.notes
+        } for p in items]
+        json.dump(payload, open(path,"w",encoding="utf-8"), ensure_ascii=False, indent=2)
+        load_patterns.clear()
         return True
     except Exception as e:
         st.error(f"Failed to save patterns: {e}")
         return False
 
-PATTERNS: List[Pattern] = load_patterns_from_json(PATTERN_JSON_PATH)
+PATTERNS: List[Pattern] = load_patterns(PATTERN_JSON_PATH)
 
-# ==============================================
-# COLOR UTILS
-# ==============================================
-def hex_to_rgb(h: str):
-    h = h.lstrip('#'); return tuple(int(h[i:i+2], 16) for i in (0,2,4))
-
-def rel_luminance(rgb):
-    def f(c): c = c/255.0; return c/12.92 if c <= 0.04045*255 else ((c+0.055)/1.055)**2.4
-    r,g,b = rgb; r,g,b = f(r), f(g), f(b); return 0.2126*r + 0.7152*g + 0.0722*b
-
-def contrast(a_hex, b_hex):
-    L1 = rel_luminance(hex_to_rgb(a_hex)); L2 = rel_luminance(hex_to_rgb(b_hex))
-    hi, lo = (max(L1, L2), min(L1, L2)); return (hi + 0.05) / (lo + 0.05)
-
-def pick_contrasting_color(base: str, palette: List[str], desired: str):
-    target = {"Low":(1.1,1.8), "Medium":(1.8,3.5), "High":(3.5,21.0)}.get(desired, (1.8,3.5))
-    cand = []
-    for c in palette:
-        if c == base: continue
-        cr = contrast(base, c)
-        if target[0] <= cr <= target[1]: cand.append((cr, c))
-    if not cand:
-        mid = sum(target)/2
-        return min(palette, key=lambda c: abs(contrast(base, c) - mid))
-    return sorted(cand, key=lambda x: abs(x[0] - sum(target)/2))[0][1]
-
-# ==============================================
-# SCORING & RECOMMENDATION
-# ==============================================
-WEIGHTS = {"gender":1.0,"mood":1.1,"season":0.9,"formality":1.0,"motif":0.8,"contrast":0.6}
-
-def score_pattern(p: Pattern, prefs: Dict[str, Any]) -> float:
-    s = 0.0
-    if (g := prefs.get("gender")) and (g in p.genders or "Unisex" in p.genders): s += WEIGHTS["gender"]
-    if (m := prefs.get("mood")) and (m in p.mood): s += WEIGHTS["mood"]
-    if (ss := prefs.get("season")) and (ss in p.seasons or "All year" in p.seasons): s += WEIGHTS["season"]
-    if (t := prefs.get("tpo")) and (t in p.formality): s += WEIGHTS["formality"]
-    if (mo := prefs.get("motif")) and (mo in p.motifs): s += WEIGHTS["motif"]
-    if (c := prefs.get("contrast")) and (c in p.contrast_pref): s += WEIGHTS["contrast"]
-    return s
-
-def build_reasons(p: Pattern, prefs: Dict[str, Any]) -> List[str]:
-    reasons: List[str] = []
-    if prefs.get("mood") in p.mood: reasons.append(f"Matches mood '{prefs['mood']}'")
-    s = prefs.get("season")
-    if s and (s in p.seasons or "All year" in p.seasons): reasons.append(f"Works for '{s}'")
-    t = prefs.get("tpo")
-    if t in p.formality: reasons.append(f"Appropriate for '{t}'")
-    m = prefs.get("motif")
-    if m in p.motifs: reasons.append(f"Motif '{m}' included")
-    if prefs.get("contrast") in p.contrast_pref: reasons.append(f"Good for contrast '{prefs['contrast']}'")
-    if not reasons: reasons.append("Versatile and easy to coordinate")
-    return reasons
-
-def pick_combo(p: Pattern, prefs: Dict[str, Any]) -> Dict[str, Any]:
-    palette = p.color_palettes[0] if p.color_palettes else ["#222222","#dddddd","#aaaaaa"]
-    if len(p.color_palettes) > 1:
-        idx = (hash(p.name + str(prefs)) % len(p.color_palettes))
-        palette = p.color_palettes[idx]
-    base_kimono = palette[0]
-    sub1 = palette[1] if len(palette) > 1 else palette[0]
-    sub2 = palette[2] if len(palette) > 2 else palette[0]
-    desired_contrast = prefs.get("contrast", "Medium")
-    obi = pick_contrasting_color(base_kimono, palette + ["#FFFFFF", "#000000"], desired_contrast)
-    obijime = pick_contrasting_color(obi, palette, "Medium")
-    obiage = sub2
-    return {"kimono_base": base_kimono,"kimono_accent1": sub1,"kimono_accent2": sub2,"obi": obi,"obijime": obijime,"obiage": obiage}
-
-def recommend(prefs: Dict[str, Any], k: int = 3):
-    if not PATTERNS: return []
-    scored = sorted(((score_pattern(p, prefs), p) for p in PATTERNS), key=lambda x: x[0], reverse=True)
-    top = [p for _, p in scored[:k]]
-    results = []
-    for p in top:
-        combo = pick_combo(p, prefs); reasons = build_reasons(p, prefs)
-        results.append({"pattern": p.name,"motifs": p.motifs,"notes": p.notes,"reasons": reasons,"colors": combo})
-    return results
-
-# ==============================================
-# IMAGE INDEX
-# ==============================================
+# ==============================
+# 画像リンク（images.json）
+# ==============================
 @st.cache_data(show_spinner=False)
-def load_image_index() -> Dict[str, List[str]]:
+def load_links() -> Dict[str, List[str]]:
     try:
-        with open(IMAGE_INDEX_JSON, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        fixed = {}
-        for k, v in data.items():
-            fixed[k] = [p if os.path.isabs(p) else os.path.join(ASSETS_PATTERNS, os.path.basename(p)) for p in v]
+        data = json.load(open(IMAGE_INDEX_JSON,"r",encoding="utf-8"))
+        fixed={}
+        for k,v in data.items():
+            fixed[k]=[p if os.path.isabs(p) else os.path.join(ASSETS_PATTERNS, os.path.basename(p)) for p in v]
         return fixed
     except Exception:
         return {}
 
-def save_image_index(index: Dict[str, List[str]]):
-    try:
-        with open(IMAGE_INDEX_JSON, "w", encoding="utf-8") as f:
-            json.dump(index, f, ensure_ascii=False, indent=2)
-        st.toast("Saved image index.", icon="✅")
-        load_image_index.clear()
-    except Exception as e:
-        st.error(f"Failed to save: {e}")
+def save_links(d: Dict[str, List[str]]):
+    json.dump(d, open(IMAGE_INDEX_JSON,"w",encoding="utf-8"), ensure_ascii=False, indent=2)
+    load_links.clear()
+    st.toast("Saved image links.", icon="✅")
 
-@st.cache_data(show_spinner=False)
-def list_all_pattern_images() -> List[str]:
-    files = []
-    if os.path.exists(ASSETS_PATTERNS):
-        for fn in sorted(os.listdir(ASSETS_PATTERNS)):
-            if fn.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-                files.append(os.path.join(ASSETS_PATTERNS, fn))
-    return files
+# ==============================
+# 推薦ロジック（シンプル）
+# ==============================
+WEIGHTS = {"gender":1.0,"mood":1.1,"season":0.9,"formality":1.0,"motif":0.8,"contrast":0.6}
 
-# ==============================================
-# UI HEADER
-# ==============================================
-st.markdown(
-    '<div class="hero"><div class="hero-inner">'
-    '<div class="hero-title">🎴 Wagara Recommender</div>'
-    '<div class="hero-sub">Find kimono patterns and color palettes that match your mood, season, and style.</div>'
-    '</div></div>', unsafe_allow_html=True
-)
-st.markdown("\n")
+def score(p: Pattern, pref: Dict[str, Any]) -> float:
+    s=0.0
+    if (g:=pref.get("gender")) and (g in p.genders or "Unisex" in p.genders): s+=WEIGHTS["gender"]
+    if (m:=pref.get("mood")) and (m in p.mood): s+=WEIGHTS["mood"]
+    if (ss:=pref.get("season")) and (ss in p.seasons or "All year" in p.seasons): s+=WEIGHTS["season"]
+    if (t:=pref.get("tpo")) and (t in p.formality): s+=WEIGHTS["formality"]
+    if (mo:=pref.get("motif")) and (mo in p.motifs): s+=WEIGHTS["motif"]
+    if (c:=pref.get("contrast")) and (c in p.contrast_pref): s+=WEIGHTS["contrast"]
+    return s
 
-# ==============================================
-# SIDEBAR
-# ==============================================
+def recommend(pref: Dict[str, Any], k:int=3):
+    ranked = sorted(((score(p,pref),p) for p in PATTERNS), key=lambda x:x[0], reverse=True)
+    return [p for _,p in ranked[:k]]
+
+# ==============================
+# サイドバー
+# ==============================
 with st.sidebar:
     st.header("Select your preferences")
     gender = st.radio("Gender (for style reference only)", ["Male","Female","Unisex"], index=2)
@@ -303,229 +223,297 @@ with st.sidebar:
     season = st.selectbox("Season", ["Spring","Summer","Autumn","Winter","All year"], index=4)
     tpo = st.selectbox("Formality", ["Casual","Semi-formal","Formal"], index=1)
     motif = st.selectbox("Motif type", ["Geometric","Nature","Classic","Modern","Lucky symbol"], index=0)
-    contrast_level = st.radio("Contrast level", ["Low","Medium","High"], index=1, horizontal=True)
-    show_colors = st.toggle("Show color palette", value=False)  # default OFF
+    contrast = st.radio("Contrast level", ["Low","Medium","High"], index=1, horizontal=True)
+    show_colors = st.toggle("Show color palette", value=False)
     st.divider()
     edit_mode = st.toggle("Edit mode (upload/link images, manage patterns)", value=False)
 
-# ==============================================
-# RECOMMEND SECTION
-# ==============================================
-prefs = {"gender":gender, "mood":mood, "season":season, "tpo":tpo, "motif":motif, "contrast":contrast_level}
-recs = recommend(prefs, k=3)
-
+# ==============================
+# Top 3 （必ず画像を出す）
+# ==============================
+prefs={"gender":gender,"mood":mood,"season":season,"tpo":tpo,"motif":motif,"contrast":contrast}
+top = recommend(prefs, k=3)
 st.subheader("Top 3 matches")
-img_index = load_image_index()
-cols = st.columns(3 if recs else 1)
+cols = st.columns(3 if top else 1)
 
-if recs:
-    for i, (col, r) in enumerate(zip(cols, recs), start=1):
-        with col:
+links = load_links()
+gallery = all_images_in(ASSETS_PATTERNS)
+
+def guess_images(pname: str, limit:int=3) -> List[str]:
+    linked = links.get(pname, [])
+    if linked: return linked[:limit]
+    tokens = [t for t in re.split(r"[\s\(\)\-_/]+", pname) if t]
+    scored=[]
+    for path in gallery:
+        base = norm(os.path.basename(path))
+        hits = sum(1 for t in tokens if norm(t) in base)
+        if hits>0: scored.append((hits, path))
+    if scored:
+        scored.sort(key=lambda x:(-x[0], os.path.basename(x[1])))
+        return [p for _,p in scored[:limit]]
+    return gallery[:limit]
+
+if top:
+    for i, (c, pat) in enumerate(zip(cols, top), start=1):
+        with c:
             st.markdown('<div class="rec-card">', unsafe_allow_html=True)
-            st.markdown(f"<div class='rec-title'>[{i}] {r['pattern']}</div>", unsafe_allow_html=True)
-            st.markdown(" ".join([f"<span class='rec-badge'>{b}</span>" for b in r["motifs"]]), unsafe_allow_html=True)
-            if r["notes"]:
-                st.markdown("<div class='small-muted' style='margin-top:.35rem'>" + r["notes"] + "</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='rec-title'>[{i}] {pat.name}</div>", unsafe_allow_html=True)
+            st.markdown(" ".join([f"<span class='rec-badge'>{m}</span>" for m in pat.motifs]), unsafe_allow_html=True)
 
             st.markdown("**Why it fits**")
-            for reason in r["reasons"]:
-                st.write("• ", reason)
+            bullets=[]
+            if mood in pat.mood: bullets.append(f"Matches mood '{mood}'")
+            if season in pat.seasons or "All year" in pat.seasons: bullets.append(f"Works for '{season}'")
+            if tpo in pat.formality: bullets.append(f"Appropriate for '{tpo}'")
+            if motif in pat.motifs: bullets.append(f"Motif '{motif}' included")
+            if contrast in pat.contrast_pref: bullets.append(f"Good for contrast '{contrast}'")
+            if not bullets: bullets.append("Versatile and easy to coordinate")
+            for b in bullets: st.write("•", b)
 
-            if show_colors:
+            if show_colors and pat.color_palettes:
                 st.markdown("**Suggested colors**")
-                c = r["colors"]
-                items = [("Kimono base", c["kimono_base"]),("Accent 1", c["kimono_accent1"]),
-                         ("Accent 2", c["kimono_accent2"]),("Obi", c["obi"]),
-                         ("Obijime", c["obijime"]),("Obiage", c["obiage"])]
-                chips_html = "<div class='colors'>" + "".join(
-                    [f"<div class='color-chip'><span class='color-swatch' style='background:{hx}'></span><span>{label}</span><code style='margin-left:.25rem'>{hx}</code></div>"
-                     for label, hx in items]) + "</div>"
-                st.markdown(chips_html, unsafe_allow_html=True)
+                pal = pat.color_palettes[0]
+                html = "<div class='colors'>" + "".join(
+                    [f"<div class='color-chip'><span class='color-swatch' style='background:{hx}'></span>"
+                     f"<span>{i+1}</span><code style='margin-left:.25rem'>{hx}</code></div>" for i,hx in enumerate(pal)]
+                ) + "</div>"
+                st.markdown(html, unsafe_allow_html=True)
 
-            # Preview images (max 3 side-by-side)
-            if r["pattern"] in img_index and img_index[r["pattern"]]:
+            cand = guess_images(pat.name, 3)
+            if cand:
                 st.markdown("**Preview**")
-                imgs = img_index[r["pattern"]][:3]
-                cols_img = st.columns(len(imgs))
-                for j, pth in enumerate(imgs):
-                    with cols_img[j]:
-                        try:
-                            with open(pth, "rb") as fh:
-                                data = fh.read()
-                            st.image(data, use_column_width=True, output_format="auto")
-                        except Exception:
-                            st.info("Failed to load image.")
+                ic = st.columns(len(cand))
+                for j, pth in enumerate(cand):
+                    with ic[j]:
+                        data = read_bytes(pth)
+                        if data: st.image(data, use_column_width=True)
+                        else: st.info("Failed to load image.")
+                # リンクしてない推測結果を登録
+                new_to_add = [p for p in cand if p not in links.get(pat.name, [])]
+                if new_to_add and st.button("Link guessed images", key=f"link-{i}"):
+                    links.setdefault(pat.name, []).extend(new_to_add)
+                    save_links(links)
+                    st.rerun()
             else:
-                st.caption("No linked images. Add some in Edit mode.")
-            st.markdown('</div>', unsafe_allow_html=True)
+                st.caption("No images found yet.")
+            st.markdown("</div>", unsafe_allow_html=True)
 else:
-    st.info("No patterns yet. Go to Edit mode to create patterns, then link images.")
+    st.info("No patterns yet. Use Edit mode to add.")
 
 st.divider()
 
-# ==============================================
-# GALLERY (強制表示版)
-# ==============================================
+# ==============================
+# ギャラリー
+# ==============================
 st.subheader("Image Gallery")
-
-def _all_images_in_folder(folder: str) -> List[str]:
-    if not os.path.isdir(folder):
-        return []
-    exts = ["png","jpg","jpeg","webp","PNG","JPG","JPEG","WEBP"]
-    files: List[str] = []
-    for ext in exts:
-        files.extend(glob.glob(os.path.join(folder, f"*.{ext}")))
-    # Also include linked images if they exist
-    try:
-        idx = load_image_index()
-        for paths in idx.values():
-            for p in paths:
-                if os.path.exists(p) and p not in files:
-                    files.append(p)
-    except Exception:
-        pass
-    files.sort(key=lambda p: os.path.getsize(p) if os.path.exists(p) else 0)
-    return files
-
-gallery_files = _all_images_in_folder(ASSETS_PATTERNS)
-if not gallery_files:
+if not gallery:
     st.warning(f"No images found in: {ASSETS_PATTERNS}")
     st.caption("Put images in assets/patterns or add via Edit mode → ✚ Simple Add.")
 else:
-    ncols = 4
-    cols_g = [st.columns(ncols) for _ in range((len(gallery_files)+ncols-1)//ncols)]
-    idx = 0
-    for row in cols_g:
-        for col in row:
-            if idx >= len(gallery_files):
-                break
-            path = gallery_files[idx]; idx += 1
+    n = 4
+    rows = (len(gallery)+n-1)//n
+    idx=0
+    for _ in range(rows):
+        r = st.columns(n)
+        for col in r:
+            if idx>=len(gallery): break
+            data = read_bytes(gallery[idx]); fname = os.path.basename(gallery[idx]); idx+=1
             with col:
-                try:
-                    with open(path, "rb") as fh:
-                        data = fh.read()
-                    st.image(data, use_column_width=True, caption=os.path.basename(path))
-                except Exception as e:
-                    st.error(f"Failed to display {os.path.basename(path)}: {e}")
+                if data: st.image(data, use_column_width=True, caption=fname)
+                else: st.error(f"Failed to display {fname}")
 
-st.divider()
-
-# ==============================================
-# EDIT MODE
-# ==============================================
+# ==============================
+# Edit mode
+# ==============================
 if edit_mode:
     st.divider()
-    st.subheader("Initialize / Clean up")
-    with st.expander("Reset tools (remove samples & start fresh)", expanded=False):
-        st.caption("Caution: irreversible operations.")
-        c1, c2 = st.columns(2)
-        with c1:
-            reset_index = st.button("Clear images.json (unlink all)", use_container_width=True)
-        with c2:
-            wipe_all = st.button("Delete all images in assets/patterns", use_container_width=True)
-        confirm = st.checkbox("I understand. Go ahead.")
-        if confirm and reset_index:
+    st.subheader("✚ Simple Add (image → pattern)")
+    col1, col2 = st.columns([2,1])
+
+    MOTIF_CHOICES=["Geometric","Nature","Classic","Modern","Lucky symbol","Dynamic","Seasonal"]
+    SEASON_CHOICES=["Spring","Summer","Autumn","Winter","All year"]
+    FORM_CHOICES=["Casual","Semi-formal","Formal"]
+    MOOD_CHOICES=["Bright","Calm","Elegant","Sharp","Playful","Serene","Graceful","Soft","Dynamic","Refined","Bold","Refreshing","Feminine"]
+    GENDER_CHOICES=["Male","Female","Unisex"]
+    CONTRAST_CHOICES=["Low","Medium","High"]
+
+    with col1:
+        up = st.file_uploader("Wagara image", type=["png","jpg","jpeg","webp"])
+        name = st.text_input("Pattern name", placeholder="e.g. Seigaiha (Blue Ocean Waves)")
+        motifs = st.multiselect("Motifs (optional)", MOTIF_CHOICES)
+        seasons = st.multiselect("Seasons (optional)", SEASON_CHOICES, default=["All year"])
+        formality = st.multiselect("Formality (optional)", FORM_CHOICES)
+        mood_ms = st.multiselect("Mood (optional)", MOOD_CHOICES)
+        genders = st.multiselect("Genders (optional)", GENDER_CHOICES, default=["Unisex"])
+        contrast_ms = st.multiselect("Contrast preference (optional)", CONTRAST_CHOICES)
+
+    with col2:
+        def extract_palette(path: str, n:int=3) -> List[str]:
             try:
-                with open(IMAGE_INDEX_JSON, "w", encoding="utf-8") as f: f.write("{}")
-                load_image_index.clear(); st.success("Cleared images.json. Reloading…"); st.rerun()
-            except Exception as e: st.error(f"Failed: {e}")
-        if confirm and wipe_all:
-            try:
-                removed = 0
-                if os.path.isdir(ASSETS_PATTERNS):
-                    for fn in os.listdir(ASSETS_PATTERNS):
-                        if fn.lower().endswith((".png",".jpg",".jpeg",".webp")):
-                            try: os.remove(os.path.join(ASSETS_PATTERNS, fn)); removed += 1
-                            except Exception: pass
-                with open(IMAGE_INDEX_JSON, "w", encoding="utf-8") as f: f.write("{}")
-                load_image_index.clear(); st.success(f"Removed {removed} files and cleared links. Reloading…"); st.rerun()
-            except Exception as e: st.error(f"Failed: {e}")
+                img=Image.open(path).convert("RGB"); img.thumbnail((150,150))
+                colors=img.getcolors(maxcolors=22500)
+                colors.sort(reverse=True, key=lambda x:x[0])
+                hexes=[]
+                for _, rgb in colors[: n*4]:
+                    hx='#%02X%02X%02X'%rgb
+                    if hx not in hexes: hexes.append(hx)
+                    if len(hexes)>=n: break
+                while len(hexes)<n: hexes.append("#CCCCCC")
+                return hexes
+            except Exception:
+                return ["#333333","#DDDDDD","#999999"]
 
-    st.divider()
-    st.subheader("Upload images / Link images to patterns")
-    img_index = load_image_index()
-
-    # ---------- Simple Add (image → pattern) ----------
-    st.markdown("### ✚ Simple Add (image → pattern)")
-    st.caption("Upload a wagara image, name the pattern, and (optionally) tick only attributes you want. Palette is auto-extracted.")
-
-    def extract_palette_from_image(file_path: str, n: int = 3) -> List[str]:
-        try:
-            img = Image.open(file_path).convert("RGB"); img.thumbnail((150, 150))
-            colors = img.getcolors(maxcolors=150*150)
-            if not colors: return ["#333333", "#DDDDDD", "#999999"]
-            colors.sort(reverse=True, key=lambda x: x[0])
-            hexes = []
-            for _, rgb in colors[: n * 4]:
-                hx = '#%02X%02X%02X' % rgb
-                if hx not in hexes: hexes.append(hx)
-                if len(hexes) >= n: break
-            while len(hexes) < n: hexes.append("#CCCCCC")
-            return hexes
-        except Exception:
-            return ["#333333", "#DDDDDD", "#999999"]
-
-    MOTIF_CHOICES = ["Geometric","Nature","Classic","Modern","Lucky symbol","Dynamic","Seasonal"]
-    SEASON_CHOICES = ["Spring","Summer","Autumn","Winter","All year"]
-    FORMALITY_CHOICES = ["Casual","Semi-formal","Formal"]
-    MOOD_CHOICES = ["Bright","Calm","Elegant","Sharp","Playful","Serene","Graceful","Soft","Dynamic","Refined","Bold","Refreshing","Feminine"]
-    GENDER_CHOICES = ["Male","Female","Unisex"]
-    CONTRAST_CHOICES = ["Low","Medium","High"]
-
-    colS1, colS2 = st.columns([2,1])
-    with colS1:
-        simple_image = st.file_uploader("Wagara image (single)", type=["png","jpg","jpeg","webp"], accept_multiple_files=False)
-        simple_name = st.text_input("Pattern name", placeholder="e.g. Seigaiha (Blue Ocean Waves)")
-        simple_motifs = st.multiselect("Motifs (optional)", options=MOTIF_CHOICES)
-        simple_seasons = st.multiselect("Seasons (optional)", options=SEASON_CHOICES, default=["All year"])
-        simple_formality = st.multiselect("Formality (optional)", options=FORMALITY_CHOICES)
-        simple_mood = st.multiselect("Mood (optional)", options=MOOD_CHOICES)
-        simple_genders = st.multiselect("Genders (optional)", options=GENDER_CHOICES, default=["Unisex"])
-        simple_contrast = st.multiselect("Contrast preference (optional)", options=CONTRAST_CHOICES)
-    with colS2:
-        st.write(""); st.write("")
-        go_simple = st.button("➕ Add this pattern from image", use_container_width=True)
-        wipe_patterns = st.button("🗑️ Delete ALL existing patterns", use_container_width=True)
+        go = st.button("➕ Add this pattern from image", use_container_width=True)
+        wipe_patterns = st.button("🗑️ Delete ALL patterns", use_container_width=True)
 
     if wipe_patterns:
-        try:
-            with open(PATTERN_JSON_PATH, "w", encoding="utf-8") as f: f.write("[]")
-            load_patterns_from_json.clear(); st.success("All patterns removed. Reloading…"); st.rerun()
-        except Exception as e: st.error(f"Failed: {e}")
+        with open(PATTERN_JSON_PATH,"w",encoding="utf-8") as f: f.write("[]")
+        load_patterns.clear()
+        st.success("All patterns removed.")
+        st.rerun()
 
-    if go_simple:
-        if not simple_image or not simple_name.strip():
+    if go:
+        if not up or not name.strip():
             st.error("Need both an image and a pattern name.")
         else:
-            dest = os.path.join(ASSETS_PATTERNS, simple_image.name)
-            with open(dest, "wb") as f: f.write(simple_image.getbuffer())
-            palette = extract_palette_from_image(dest, n=3)
-            _patterns = list(PATTERNS)
-            new_obj = Pattern(
-                name=simple_name.strip(),
-                motifs=list(simple_motifs), seasons=list(simple_seasons),
-                formality=list(simple_formality), mood=list(simple_mood),
-                genders=list(simple_genders) if simple_genders else ["Unisex"],
-                contrast_pref=list(simple_contrast) if simple_contrast else ["Medium"],
-                color_palettes=[palette], notes="",
-            )
-            updated = False
-            for i, p in enumerate(_patterns):
-                if p.name == new_obj.name:
-                    _patterns[i] = new_obj; updated = True; break
-            if not updated: _patterns.append(new_obj)
-            ok = save_patterns_to_json(PATTERN_JSON_PATH, _patterns)
-            # link image
-            idx = dict(load_image_index()); idx.setdefault(new_obj.name, [])
-            if dest not in idx[new_obj.name]: idx[new_obj.name].append(dest); save_image_index(idx)
-            if ok: st.success("Added/updated pattern and linked the image. Reloading…"); st.rerun()
+            dest = os.path.join(ASSETS_PATTERNS, up.name)
+            with open(dest,"wb") as f: f.write(up.getbuffer())
+            pal = extract_palette(dest, 3)
+            pats = list(PATTERNS)
+            new = Pattern(name=name.strip(), motifs=motifs, seasons=seasons, formality=formality,
+                          mood=mood_ms, genders=genders if genders else ["Unisex"],
+                          contrast_pref=contrast_ms if contrast_ms else ["Medium"],
+                          color_palettes=[pal], notes="")
+            replaced=False
+            for i,p in enumerate(pats):
+                if p.name==new.name: pats[i]=new; replaced=True; break
+            if not replaced: pats.append(new)
+            ok = save_patterns(PATTERN_JSON_PATH, pats)
+            lk = load_links(); lk.setdefault(new.name, [])
+            if dest not in lk[new.name]: lk[new.name].append(dest); save_links(lk)
+            if ok: st.success("Added/updated. Reloading…"); st.rerun()
 
-    # ---------- Advanced (optional) ----------
-    st.markdown("### Advanced: Upload images / Link images to patterns (manual)")
-    up_files = st.file_uploader("Add images (multiple allowed)", type=["png","jpg","jpeg","webp"], accept_multiple_files=True)
-    if up_files:
-        for uf in up_files:
-            dest = os.path.join(ASSETS_PATTERNS, uf.name)
+    st.divider()
+    st.subheader("Upload / Link images (manual)")
+    ups = st.file_uploader("Add images (multiple)", type=["png","jpg","jpeg","webp"], accept_multiple_files=True)
+    if ups:
+        for f in ups:
+            with open(os.path.join(ASSETS_PATTERNS, f.name),"wb") as w: w.write(f.getbuffer())
+        st.success(f"Saved {len(ups)} file(s).")
+    if st.button("Rescan"):
+        st.cache_data.clear(); st.rerun()
+
+    with st.form("link_form"):
+        files = all_images_in(ASSETS_PATTERNS)
+        tgt_files = st.multiselect("Images", files)
+        names = [p.name for p in PATTERNS]
+        tgt_name = st.selectbox("Pattern", names)
+        ok = st.form_submit_button("Link")
+    if ok and tgt_files and tgt_name:
+        lk = load_links(); lk.setdefault(tgt_name, [])
+        add=0
+        for f in tgt_files:
+            if f not in lk[tgt_name]: lk[tgt_name].append(f); add+=1
+        if add: save_links(lk); st.success(f"Linked {add} image(s)."); st.rerun()
+        else: st.info("Nothing to add.")
+
+    # 既存リンク表示
+    lk = load_links()
+    if lk:
+        st.write("Existing links")
+        for pname, paths in lk.items():
+            st.markdown(f"**{pname}**")
+            for pth in list(paths):
+                c1,c2 = st.columns([6,1])
+                with c1: st.caption(os.path.basename(pth))
+                with c2:
+                    if st.button("Unlink", key=f"unlink-{pname}-{pth}"):
+                        paths.remove(pth); save_links(lk); st.rerun()
+    else:
+        st.caption("No links yet.")
+
+    # パターン管理（最小）
+    st.divider()
+    st.subheader("Pattern Manager")
+    pats = list(PATTERNS)
+    names = [p.name for p in pats]
+    sel = st.selectbox("Select or create", ["<New>"]+names)
+    cur = next((p for p in pats if p.name==sel), None) if sel!="<New>" else None
+
+    a,b = st.columns([2,1])
+    with a:
+        nm = st.text_input("Name", value=(cur.name if cur else ""))
+        mt = st.text_input("Motifs (comma)", value=", ".join(cur.motifs) if cur else "")
+        ss = st.text_input("Seasons (comma)", value=", ".join(cur.seasons) if cur else "")
+        fm = st.text_input("Formality (comma)", value=", ".join(cur.formality) if cur else "")
+        md = st.text_input("Mood (comma)", value=", ".join(cur.mood) if cur else "")
+        gd = st.text_input("Genders (comma)", value=", ".join(cur.genders) if cur else "")
+        ct = st.text_input("Contrast (comma)", value=", ".join(cur.contrast_pref) if cur else "")
+    with b:
+        pal_text = st.text_area("Palettes (one line = comma hex)", value=("\n".join([", ".join(x) for x in (cur.color_palettes if cur else [["#0F4C81","#E6EDF7","#F2C75C"]])])))
+        notes = st.text_area("Notes", value=(cur.notes if cur else ""))
+
+    def parse_palettes(text:str) -> List[List[str]]:
+        rows=[]
+        for line in text.splitlines():
+            line=line.strip()
+            if not line: continue
+            items=[x.strip().upper() for x in line.split(",") if x.strip()]
+            fixed=[]
+            for it in items:
+                if it.startswith("#") and len(it) in (4,7): fixed.append(it)
+                elif len(it) in (3,6): fixed.append("#"+it)
+            if fixed: rows.append(fixed)
+        return rows
+
+    csa, csb, csc = st.columns(3)
+    with csa: save_btn = st.button("Save/Update", use_container_width=True)
+    with csb: del_btn = st.button("Delete", use_container_width=True, disabled=(cur is None))
+    with csc:
+        st.download_button("Export JSON",
+            data=json.dumps([{
+                "name":p.name,"motifs":p.motifs,"seasons":p.seasons,"formality":p.formality,
+                "mood":p.mood,"genders":p.genders,"contrast_pref":p.contrast_pref,"color_palettes":p.color_palettes,"notes":p.notes
+            } for p in pats], ensure_ascii=False, indent=2).encode("utf-8"),
+            file_name="patterns_export.json", mime="application/json", use_container_width=True)
+
+    if save_btn:
+        if not nm.strip(): st.error("Name required.")
+        else:
+            new = Pattern(
+                name=nm.strip(),
+                motifs=[x.strip() for x in mt.split(",") if x.strip()],
+                seasons=[x.strip() for x in ss.split(",") if x.strip()],
+                formality=[x.strip() for x in fm.split(",") if x.strip()],
+                mood=[x.strip() for x in md.split(",") if x.strip()],
+                genders=[x.strip() for x in gd.split(",") if x.strip()],
+                contrast_pref=[x.strip() for x in ct.split(",") if x.strip()],
+                color_palettes=parse_palettes(pal_text),
+                notes=notes
+            )
+            rep=False
+            for i,p in enumerate(pats):
+                if p.name==new.name: pats[i]=new; rep=True; break
+            if not rep: pats.append(new)
+            if save_patterns(PATTERN_JSON_PATH, pats): st.success("Saved."); st.rerun()
+
+    if del_btn and cur is not None:
+        pats=[p for p in pats if p.name!=cur.name]
+        if save_patterns(PATTERN_JSON_PATH, pats): st.success("Deleted."); st.rerun()
+
+# ==============================
+# Debug（最小）
+# ==============================
+with st.sidebar:
+    st.divider()
+    with st.expander("Debug", expanded=False):
+        st.write("APP_DIR:", APP_DIR)
+        st.write("ASSETS_BG (dir):", ASSETS_BG, " | isdir:", os.path.isdir(ASSETS_BG))
+        st.write("Hero picked:", hero_path or "(none)")
+        st.write("patterns_en.json:", PATTERN_JSON_PATH)
+        st.write("images.json:", IMAGE_INDEX_JSON)
+        if st.button("Force clear cache & rerun"):
+            st.cache_data.clear(); st.rerun()
             with open(dest, "wb") as f: f.write(uf.getbuffer())
         st.success(f"Saved {len(up_files)} file(s). Click 'Rescan folder' if not visible.")
     if st.button("Rescan folder"):
